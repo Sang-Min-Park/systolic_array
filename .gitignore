@@ -1,0 +1,9 @@
+sim/
+csrc/
+simv
+simv.daidir/
+*.log
+*.fsdb
+*.vpd
+ucli.key
+*.tar.gz

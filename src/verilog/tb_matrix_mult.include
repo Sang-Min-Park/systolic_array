@@ -1,0 +1,20 @@
+// Please add all your sources below
+// Make sure to list all necessary _pkg.sv files at the top
+// Example: 
+//   ./my_pkg.sv
+//   ./my_design.sv
+
+// Start here
+./matrix_mult_pkg.sv
+./pe.v
+./weight_scheduler.sv
+./input_scheduler.sv
+./output_scheduler.sv
+./matrix_mult.sv
+./mem2p_emulator.sv
+
+// End here
+
+// Do not modify //
+./mem_emulator.sv
+./tb_matrix_mult.sv

@@ -1,0 +1,78 @@
+TOPLEVEL= matrix_mult_wrapper
+TESTNAME=default
+SRC_VERILOG=../../src/verilog
+SRC_FOLDER= $(SRC_VERILOG)
+SIM=1
+SDF=0
+
+#Build up a list of verilog define statements to be used by vcs
+
+VERILOG_DEFINES:= 
+ifeq ($(SIM), 1)
+		VERILOG_DEFINES := $(VERILOG_DEFINES)+SIM=1
+endif
+ifeq ($(SDF), 1)
+		VERILOG_DEFINES := $(VERILOG_DEFINES)+SDF=1
+endif
+
+
+
+# SRC=./fsm_pkg.sv \
+	# ./$(TOPLEVEL).sv \
+	# ./tb_fsm.sv
+
+.DEFAULT_GOAL := vcs
+
+# Move all the verilog files from the source directory over to this simulation directory
+link_src:
+	find $(SRC_FOLDER) -name '*.include' -exec ln -s -f {} ';'
+	find $(SRC_FOLDER) -name '*.v' -exec ln -s -f {} ';'
+	find $(SRC_FOLDER) -name '*.sv' -exec ln -s -f {} ';'
+	find $(SRC_FOLDER) -name '*.svh' -exec ln -s -f {} ';'
+	
+
+# $(TOPLEVEL).include: Makefile
+	# echo $(SRC) > $(TOPLEVEL).include
+
+# vcs:$(TOPLEVEL).include
+	# vcs -f $(TOPLEVEL).include +v2k -R +lint=all -sverilog -full64 \
+		# -timescale=1ns/10ps -debug_acc+pp+dmptf -debug_region+cell+encrypt \
+		# -debug_access -l $(TOPLEVEL).log +define+$(VERILOG_DEFINES) \
+		# simv +vpdfile+./$(TOPLEVEL).vpd
+
+
+vcs:$(TOPLEVEL).include
+	vcs -f $(TOPLEVEL).include +v2k -R +lint=all -sverilog -full64 \
+		-timescale=1ns/10ps -debug_acc+pp+dmptf -debug_region+cell+encrypt \
+		-debug_access -l $(TOPLEVEL).log +define+$(VERILOG_DEFINES) +testname=$(TESTNAME) \
+		-lca -kdb
+		# simv 
+
+
+wipe:
+	rm -rf $(TOPLEVEL).include
+	rm -rf $(TOPLEVEL)_syn.include
+	rm -rf alib-52
+	rm -rf $(TOPLEVEL)
+	rm -rf simv.daidir
+	rm -rf DVEfiles
+	rm -rf *.log
+	rm -rf *.vpd
+	rm -rf ucli.key
+	rm -rf default.svf
+	rm -rf simv
+	rm -rf *.sv *.v *.svh
+	rm -rf csrc
+
+clean:
+	rm -rf DVEfiles
+	rm -rf *.log
+	rm -rf *.vpd
+	rm -rf ucli.key
+	rm -rf alib-52
+	rm -rf $(TOPLEVEL)
+	rm -rf simv.daidir
+	rm -rf csrc
+	rm -rf simv
+
+
