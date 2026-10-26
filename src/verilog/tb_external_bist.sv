@@ -1,0 +1,171 @@
+`timescale 1ns/1ps
+module tb_external_bist;
+import matrix_mult_pkg::*;
+logic clk_i = 0;
+always #5 clk_i = ~clk_i;
+logic rstn_async_i = 0;
+logic ext_en_i = 1;
+logic start_i = 0;
+logic en_i = 1;
+test_config_struct test_config;
+data_config_struct data_config;
+external_inputs_struct ext_inputs;
+wire [63:0] ext_result;
+wire ext_valid;
+wire ib_cenb, wb_cenb, ob_read_cenb, ob_write_cenb;
+integer weight_matrix [0:3][0:3];
+logic [31:0] expected_rows [0:511];
+logic [31:0] expected_row;
+logic [63:0] expected_signature;
+integer inputs_seen = 0;
+integer outputs_seen = 0;
+integer tests = 0;
+logic check_signature = 0;
+integer product_sum;
+
+matrix_mult_wrapper dut (
+    .clk_i(clk_i), .rstn_async_i(rstn_async_i), .en_i(en_i),
+    .start_i(start_i), .test_config_i(test_config), .data_config_i(data_config),
+    .ext_en_i(ext_en_i), .ext_inputs_i(ext_inputs),
+    .ext_result_o(ext_result), .ext_valid_o(ext_valid),
+    .ib_mem_cenb_o(ib_cenb), .wb_mem_cenb_o(wb_cenb),
+    .ob_mem_cenb_R_o(ob_read_cenb), .ob_mem_cenb_W_o(ob_write_cenb),
+    .ib_mem_data_i(32'b0), .wb_mem_data_i(32'b0),
+    .ob_mem_data_R_i(64'b0), .ob_mem_data_W_i(64'b0)
+);
+
+function automatic [63:0] next_pattern(input [63:0] state);
+    next_pattern = {state[62:0], state[62] ^ state[61] ^ state[60] ^ state[51]};
+endfunction
+
+always @(posedge clk_i) begin
+    if (dut.rstn_i && ext_en_i) begin
+        if (!ib_cenb || !wb_cenb || !ob_read_cenb || !ob_write_cenb)
+            $fatal(1, "External/BIST accessed a memory");
+        if (dut.ext_valid_i_w) begin
+            for (integer col = 0; col < 4; col++) begin
+                product_sum = 0;
+                for (integer k = 0; k < 4; k++)
+                    product_sum = product_sum + $signed(dut.ext_input_w[k])*weight_matrix[k][col];
+                if (product_sum < 0) product_sum = 0;
+                if (product_sum > 127) product_sum = 127;
+                expected_rows[inputs_seen][col*8+:8] = product_sum;
+            end
+            inputs_seen++;
+        end
+        if (dut.ext_valid_o_w) begin
+            if (outputs_seen >= inputs_seen)
+                $fatal(1, "Unexpected output valid");
+            expected_row = expected_rows[outputs_seen];
+            if (dut.ext_result_w !== expected_row)
+                $fatal(1, "Output %0d: got=%h expected=%h", outputs_seen, dut.ext_result_w, expected_row);
+            if (check_signature) begin
+                if (dut.sa_stop_w)
+                    $fatal(1, "Analyzer stopped on a valid result");
+                expected_signature = next_pattern(expected_signature) ^ {32'b0, expected_row};
+            end else if (!ext_valid || ext_result !== {32'b0, expected_row})
+                $fatal(1, "External wrapper output mismatch");
+            outputs_seen++;
+        end
+    end
+end
+
+task automatic prepare(input logic bist_test, input integer pattern_count);
+    logic [63:0] seed, stop_code;
+    begin
+        rstn_async_i = 0;
+        test_config = '0;
+        data_config = '0;
+        ext_inputs = '0;
+        inputs_seen = 0;
+        outputs_seen = 0;
+        check_signature = bist_test;
+        seed = 64'h123456789abcdef0 ^ tests;
+        stop_code = seed;
+        for (integer i = 0; i < pattern_count; i++)
+            stop_code = next_pattern(stop_code);
+        test_config.bypass = bist_test ? 3'b000 : 3'b101;
+        test_config.mode = 2'b00;
+        test_config.driver_stop_code = stop_code;
+        ext_inputs.ext_input = seed[63:32];
+        ext_inputs.ext_psum = seed[31:0];
+        expected_signature = {seed[31:0], seed[63:32]};
+        repeat (3) @(negedge clk_i);
+        rstn_async_i = 1;
+        repeat (5) @(negedge clk_i);
+        // Send four unskewed weight rows with a four-clock load window.
+        ext_inputs.ext_weight_en = 1;
+        for (integer row = 0; row < 4; row++) begin
+            for (integer col = 0; col < 4; col++) begin
+                weight_matrix[row][col] = $urandom_range(0, 14) - 7;
+                ext_inputs.ext_weight[col] = weight_matrix[row][col];
+            end
+            @(negedge clk_i);
+        end
+        ext_inputs.ext_weight_en = 0;
+        repeat (5) @(negedge clk_i);
+    end
+endtask
+
+task automatic external_case(input integer row_count, input logic insert_bubbles);
+    begin
+        prepare(0, 4);
+        for (integer row = 0; row < row_count; row++) begin
+            ext_inputs.ext_valid = 1;
+            for (integer k = 0; k < 4; k++)
+                ext_inputs.ext_input[k] = $urandom_range(0, 255);
+            @(negedge clk_i);
+            if (insert_bubbles && row % 3 == 1) begin
+                ext_inputs.ext_valid = 0;
+                repeat (2) @(negedge clk_i);
+            end
+        end
+        ext_inputs.ext_valid = 0;
+        repeat (12) @(negedge clk_i);
+        if (inputs_seen != row_count || outputs_seen != row_count)
+            $fatal(1, "External input/output count mismatch");
+        tests++;
+        $display("PASS: external rows=%0d bubbles=%0d", row_count, insert_bubbles);
+    end
+endtask
+
+task automatic bist_case(input integer row_count, input logic insert_bubbles);
+    integer clocks;
+    begin
+        prepare(1, row_count);
+        clocks = 0;
+        test_config.driver_valid = 1;
+        while (!dut.driver_done_w) begin
+            @(negedge clk_i);
+            clocks++;
+            test_config.driver_valid = !insert_bubbles || clocks % 7 != 2;
+        end
+        test_config.driver_valid = 0;
+        wait (ext_valid);
+        @(negedge clk_i);
+        if (inputs_seen != row_count || outputs_seen != row_count)
+            $fatal(1, "BIST count mismatch: in=%0d out=%0d expected=%0d", inputs_seen, outputs_seen, row_count);
+        if (ext_result !== expected_signature)
+            $fatal(1, "Signature got=%h expected=%h", ext_result, expected_signature);
+        if (dut.bist_pending_count !== 0)
+            $fatal(1, "Pending count did not drain");
+        tests++;
+        $display("PASS: BIST rows=%0d bubbles=%0d signature=%h", row_count, insert_bubbles, ext_result);
+        repeat (2) @(negedge clk_i);
+    end
+endtask
+
+initial begin
+    test_config = '0; data_config = '0; ext_inputs = '0;
+    external_case(1, 0);
+    external_case(4, 0);
+    external_case(32, 0);
+    external_case(20, 1);
+    bist_case(1, 0);
+    bist_case(4, 0);
+    bist_case(32, 0);
+    bist_case(25, 1);
+    $display("PASS: all %0d external/BIST cases", tests);
+    $finish;
+end
+endmodule

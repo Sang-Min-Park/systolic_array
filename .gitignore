@@ -7,3 +7,5 @@ simv.daidir/
 *.vpd
 ucli.key
 *.tar.gz
+__pycache__/
+*.py[cod]

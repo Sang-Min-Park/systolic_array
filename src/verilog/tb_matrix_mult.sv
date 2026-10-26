@@ -192,6 +192,9 @@ module tb_matrix_mult;
       ext_en_i      = 1'b0;
       ext_inputs_i  = '0;
       data_config_i = '0;
+      data_config_i.i_rows = M;
+      data_config_i.w_cols = N;
+      data_config_i.w_rows = K;
       repeat (3) @(negedge clk_i);
       rst_n = 1'b1;
 
@@ -201,6 +204,12 @@ module tb_matrix_mult;
       $readmemh({data_dir, "/ACT_MEM_2.hex"}, ib_mem.data, 0, 3);
       $readmemh({data_dir, "/WEIGHT_MEM_2.hex"}, wb_mem.data, 0, 3);
       $readmemh({data_dir, "/OUTPUT_MEM_2.hex"}, expected_result, 0, 3);
+
+      // Apply the final ReLU to the supplied signed INT8 expectations.
+      for (integer row = 0; row < 4; row++)
+         for (integer col = 0; col < 4; col++)
+            if ($signed(expected_result[row][col][WIDTH-1:0]) < 0)
+               expected_result[row][col] = '0;
 
       //start
       @(negedge clk_i);
@@ -219,7 +228,7 @@ module tb_matrix_mult;
                $fatal(1, "Mismatch at C[%0d][%0d]", row, col);
          end
       end
-      $display("PASS: Output memory matches OUTPUT_MEM_2.hex");
+      $display("PASS: Output memory matches ReLU(OUTPUT_MEM_2.hex)");
       $finish;
    end
 

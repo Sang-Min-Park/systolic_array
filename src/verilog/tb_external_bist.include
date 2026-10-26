@@ -1,0 +1,14 @@
+./matrix_mult_pkg.sv
+./pseudo_rand_num_gen_pkg.sv
+./pe.v
+./input_scheduler.sv
+./weight_scheduler.sv
+./output_scheduler.sv
+./matrix_mult.sv
+./lfsr.sv
+./pseudo_rand_num_gen.sv
+./misr.sv
+./signature_analizer.sv
+./async_nreset_synchronizer.sv
+./matrix_mult_wrapper.sv
+./tb_external_bist.sv

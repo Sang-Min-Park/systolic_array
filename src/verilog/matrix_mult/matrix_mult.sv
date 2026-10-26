@@ -53,18 +53,39 @@ module matrix_mult #(
     );
 
 typedef enum logic [1:0] {
-    IDLE, 
-    COMPUTE, 
+    IDLE,
+    COMPUTE,
     DONE
     } matrix_mult_state;
 
 matrix_mult_state current_state, next_state;
 
 logic start_d;
-logic [3:0] cycle;
+logic [$clog2(M)-1:0] cycle;
 logic output_done;
 logic active;
+logic array_active;
+logic act_feed_en, act_feed_done;
+logic [$clog2(M+1)-1:0]    act_m_size;
+logic [$clog2((K >> 2)+1)-1:0]  act_k_tile_idx;
+logic [$clog2(N+1)-1:0]    wgt_n_size;
+logic [$clog2(K+1)-1:0]    wgt_k_size;
+logic [$clog2((K >> 2)+1)-1:0]  wgt_k_tile_idx;
+logic [$clog2((N >> 2)+1)-1:0]  wgt_n_tile_idx;
+logic [$clog2(I_SIZE)-1:0] act_mem_offset, act_k_col_base;
+logic [$clog2(W_SIZE)-1:0] wgt_mem_offset, wgt_tile_base;
+logic [$clog2(O_SIZE)-1:0] rst_mem_offset;
+logic wgt_last_k_tile, last_wgt_tile;
 
+// Input-side coordinates advance independently of results still in flight.
+assign act_k_tile_idx  = wgt_k_tile_idx;
+assign act_k_col_base  = act_mem_offset + act_k_tile_idx * act_m_size;
+assign wgt_tile_base   = wgt_mem_offset + wgt_n_tile_idx * wgt_k_size + wgt_k_tile_idx * 4;
+
+assign wgt_last_k_tile = (wgt_k_tile_idx == (wgt_k_size >> 2) - 1);
+assign last_wgt_tile   = wgt_last_k_tile && (wgt_n_tile_idx == (wgt_n_size >> 2) - 1);
+
+assign act_feed_en     = active && !act_feed_done;
 
 // Start edge detector by delaying
 always_ff @(posedge clk_i) begin
@@ -87,7 +108,7 @@ always_comb begin
     next_state = current_state;
     case (current_state)
         IDLE: begin
-            if (start_i && !start_d)
+            if (start_i && !start_d && !ext_en_i)
                 next_state = COMPUTE;
         end
         COMPUTE: begin
@@ -104,18 +125,49 @@ end
 // Registered outputs and compute-cycle counter.
 always_ff @(posedge clk_i) begin
     if (!rstn_i) begin
-        cycle  <= '0;
-        done_o <= 1'b0;
+        cycle          <= '0;
+        act_feed_done  <= 1'b0;
+        done_o         <= 1'b0;
+        act_m_size     <= '0;
+        wgt_n_size     <= '0;
+        wgt_k_size     <= '0;
+        wgt_k_tile_idx <= '0;
+        wgt_n_tile_idx <= '0;
+        act_mem_offset <= '0;
+        wgt_mem_offset <= '0;
+        rst_mem_offset <= '0;
     end else begin
         case (current_state)
             IDLE: begin
+                if (start_i && !start_d && !ext_en_i) begin
+                    cycle <= '0;
+                    act_feed_done <= 1'b0;
+                    act_m_size     <= data_config_i.i_rows;
+                    wgt_n_size     <= data_config_i.w_cols;
+                    wgt_k_size     <= data_config_i.w_rows;
+                    act_mem_offset <= data_config_i.i_offset;
+                    wgt_mem_offset <= data_config_i.w_offset;
+                    rst_mem_offset <= data_config_i.psum_offset;
+                    wgt_k_tile_idx <= '0;
+                    wgt_n_tile_idx <= '0;
+                end
             end
             COMPUTE: begin
-                if (output_done) begin
-                    cycle  <= '0;
+                if (act_feed_en) begin
+                    if (cycle == act_m_size - 1) begin
+                        cycle <= '0;
+                        if (last_wgt_tile)
+                            act_feed_done <= 1'b1;
+                        else if (wgt_last_k_tile) begin
+                            wgt_k_tile_idx <= '0;
+                            wgt_n_tile_idx <= wgt_n_tile_idx + 1'b1;
+                        end else
+                            wgt_k_tile_idx <= wgt_k_tile_idx + 1'b1;
+                    end else
+                        cycle <= cycle + 1'b1;
+                end
+                if (output_done)
                     done_o <= 1'b1;
-                end else
-                    cycle <= cycle + 1'b1;
             end
             DONE: begin
                 done_o <= 1'b0;
@@ -125,16 +177,12 @@ always_ff @(posedge clk_i) begin
 end
 
 //don't care
-assign ob_mem_cenb_R_o     = 1'b1;
-assign ob_mem_wenb_R_o     = 1'b1;
-assign ob_mem_addr_R_o     =   '0;
 assign ob_mem_data_R_o     =   '0;
-assign ext_result_o        =   '0;
-assign ext_valid_o         = 1'b0;
 assign extra_output_bits_o =   '0;
 
 //active
-assign active = (current_state == COMPUTE);
+assign active       = (current_state == COMPUTE) && !ext_en_i;
+assign array_active = active || ext_en_i;
 
 ////////////**PE Instantiation**///////////////
 
@@ -173,66 +221,94 @@ end
 for (genvar r = 0; r < 4; r++) begin : gen_row
     for (genvar c = 0; c < 4; c++) begin : gen_col
         pe #(
-            .WIDTH             (WIDTH),
-            .ACCUM_WIDTH       (ARRAY_ACCUM_WIDTH)
+            .WIDTH              (WIDTH),
+            .ACCUM_WIDTH        (ARRAY_ACCUM_WIDTH)
         ) u_pe (
-            .clk_i             (clk_i),
-            .rstn_i            (rstn_i),
+            .clk_i              (clk_i),
+            .rstn_i             (rstn_i),
 
-            .weight_en_i       (weight_en_link[r][c]),
-            .weight_en_o       (weight_en_link[r+1][c]),
-            .weight_i          (weight_scheduled[c]),
+            .weight_en_i        (weight_en_link[r][c]),
+            .weight_en_o        (weight_en_link[r+1][c]),
+            .weight_i           (weight_scheduled[c]),
 
-            .act_i             (act_link[r][c]),
-            .act_o             (act_link[r][c+1]),
+            .act_i              (act_link[r][c]),
+            .act_o              (act_link[r][c+1]),
 
-            .psum_i            (psum_link[r][c]),
-            .psum_o            (psum_link[r+1][c])
+            .psum_i             (psum_link[r][c]),
+            .psum_o             (psum_link[r+1][c])
         );
     end
 end
 
 weight_scheduler #(
-    .WIDTH             (WIDTH),
-    .W_SIZE            (W_SIZE)
+    .WIDTH              (WIDTH),
+    .W_SIZE             (W_SIZE),
+    .M                  (M)
 ) u_weight_scheduler (
-    .clk_i             (clk_i),
-    .rstn_i            (rstn_i),
-    .active_i          (active),
-    .cycle_i           (cycle),
-    .mem_data_i        (wb_mem_data_i),
-    .mem_cenb_o        (wb_mem_cenb_o),
-    .mem_wenb_o        (wb_mem_wenb_o),
-    .mem_addr_o        (wb_mem_addr_o),
-    .weight_en_o       (weight_en),
-    .weight_o          (weight_scheduled)
+    .read_en_i          (act_feed_en),
+    .wgt_tile_base_i    (wgt_tile_base),
+    .clk_i              (clk_i),
+    .rstn_i             (rstn_i),
+    .active_i           (array_active),
+    .ext_en_i           (ext_en_i),
+    .ext_weight_en_i    (ext_inputs_i.ext_weight_en),
+    .ext_data_i         (ext_inputs_i.ext_weight),
+    .cycle_i            (cycle),
+    .mem_data_i         (wb_mem_data_i),
+    .mem_cenb_o         (wb_mem_cenb_o),
+    .mem_wenb_o         (wb_mem_wenb_o),
+    .mem_addr_o         (wb_mem_addr_o),
+    .weight_en_o        (weight_en),
+    .weight_o           (weight_scheduled)
 );
 
 input_scheduler #(
-    .WIDTH             (WIDTH),
-    .I_SIZE            (I_SIZE)
+    .WIDTH              (WIDTH),
+    .I_SIZE             (I_SIZE),
+    .M                  (M)
 ) u_input_scheduler (
-    .clk_i             (clk_i),
-    .rstn_i            (rstn_i),
-    .active_i          (active),
-    .cycle_i           (cycle),
-    .mem_data_i        (ib_mem_data_i),
-    .mem_cenb_o        (ib_mem_cenb_o),
-    .mem_wenb_o        (ib_mem_wenb_o),
-    .mem_addr_o        (ib_mem_addr_o),
-    .act_o             (act_scheduled)
+    .read_en_i          (act_feed_en),
+    .act_m_size_i       (act_m_size),
+    .act_k_col_base_i   (act_k_col_base),
+    .clk_i              (clk_i),
+    .rstn_i             (rstn_i),
+    .active_i           (array_active),
+    .ext_en_i           (ext_en_i),
+    .ext_valid_i        (ext_inputs_i.ext_valid),
+    .ext_data_i         (ext_inputs_i.ext_input),
+    .cycle_i            (cycle),
+    .mem_data_i         (ib_mem_data_i),
+    .mem_cenb_o         (ib_mem_cenb_o),
+    .mem_wenb_o         (ib_mem_wenb_o),
+    .mem_addr_o         (ib_mem_addr_o),
+    .act_o              (act_scheduled)
 );
 
 output_scheduler #(
     .WIDTH             (WIDTH),
     .ARRAY_ACCUM_WIDTH (ARRAY_ACCUM_WIDTH),
     .ACCUM_WIDTH       (ACCUM_WIDTH),
-    .O_SIZE            (O_SIZE)
+    .O_SIZE            (O_SIZE),
+    .M                 (M),
+    .N                 (N),
+    .K                 (K)
 ) u_output_scheduler (
     .clk_i             (clk_i),
     .rstn_i            (rstn_i),
     .active_i          (active),
-    .cycle_i           (cycle),
+    .ext_en_i          (ext_en_i),
+    .ext_act_valid_i   (ext_inputs_i.ext_valid),
+    .ext_result_o      (ext_result_o),
+    .ext_valid_o       (ext_valid_o),
+    .act_request_i     (!ib_mem_cenb_o),
+    .rst_m_size_i      (act_m_size),
+    .rst_n_size_i      (wgt_n_size),
+    .wgt_k_size_i      (wgt_k_size),
+    .rst_mem_offset_i  (rst_mem_offset),
+    .mem_data_R_i      (ob_mem_data_R_i),
+    .mem_cenb_R_o      (ob_mem_cenb_R_o),
+    .mem_wenb_R_o      (ob_mem_wenb_R_o),
+    .mem_addr_R_o      (ob_mem_addr_R_o),
     .psum_i            (psum_result),
     .mem_cenb_o        (ob_mem_cenb_W_o),
     .mem_wenb_o        (ob_mem_wenb_W_o),
