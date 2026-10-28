@@ -1,4 +1,4 @@
-module weight_scheduler #(
+module weight_scheduler_3 #(
     parameter WIDTH  = 8,
     parameter W_SIZE = 1024,
     parameter M      = 64

@@ -1,4 +1,4 @@
-module output_scheduler #(
+module output_scheduler_3 #(
     parameter WIDTH             = 8,
     parameter ARRAY_ACCUM_WIDTH = 18,
     parameter ACCUM_WIDTH       = 16,
@@ -11,10 +11,12 @@ module output_scheduler #(
     input  logic                               rstn_i,
     input  logic                               active_i,
     input  logic                               ext_en_i,
+    input  logic                               relu_en_i,
     input  logic                               ext_act_valid_i,
     output logic [3:0][WIDTH-1:0]              ext_result_o,
     output logic                               ext_valid_o,
     input  logic                               act_request_i,
+    input  logic                               zero_tile_skip_i,
     input  logic [$clog2(M+1)-1:0]             rst_m_size_i,
     input  logic [$clog2(N+1)-1:0]             rst_n_size_i,
     input  logic [$clog2(K+1)-1:0]             wgt_k_size_i,
@@ -36,6 +38,7 @@ logic signed [ARRAY_ACCUM_WIDTH-1:0] psum_delay_col2;
 wire  signed [ARRAY_ACCUM_WIDTH-1:0] psum_aligned [3:0];
 
 localparam logic signed [WIDTH-1:0] MAX_RESULT = {1'b0, {(WIDTH-1){1'b1}}}; //max clipping
+localparam logic signed [WIDTH-1:0] MIN_RESULT = {1'b1, {(WIDTH-1){1'b0}}};
 
 //column0 3delay, 
 //column1 2delay, 
@@ -67,6 +70,7 @@ assign psum_aligned[3] = psum_i[3];
 
 // Delay request validity to the aligned result, independent of input tiles.
 logic [7:0] rst_valid_pipe;
+logic [6:0] zero_tile_skip_pipe;
 logic rst_read_valid, rst_aligned_valid;
 logic [$clog2(M+1)-1:0] rst_read_row_idx;
 // K-tile accumulation iteration; advances after all M rows (0 to K/4 - 1).
@@ -108,6 +112,15 @@ always_ff @(posedge clk_i) begin
                            ext_en_i ? ext_act_valid_i : act_request_i};
 end
 
+// Advance output coordinates after the last retained zero row reaches prefetch.
+// Preserve the data/valid pipeline so older tiles and retained writes still drain.
+always_ff @(posedge clk_i) begin
+    if (!rstn_i || !active_i)
+        zero_tile_skip_pipe <= '0;
+    else
+        zero_tile_skip_pipe <= {zero_tile_skip_pipe[5:0], zero_tile_skip_i};
+end
+
 always_ff @(posedge clk_i) begin
     if (!rstn_i) begin
         rst_read_row_idx <= '0;
@@ -118,7 +131,10 @@ always_ff @(posedge clk_i) begin
         rst_k_iteration_idx <= '0;
         rst_read_n_tile_idx <= '0;
     end else begin
-        if (rst_read_valid) begin
+        if (zero_tile_skip_pipe[6]) begin
+            rst_read_row_idx <= '0;
+            rst_k_iteration_idx <= rst_k_iteration_idx + 1'b1;
+        end else if (rst_read_valid) begin
             if (rst_read_row_idx == rst_m_size_i - 1) begin
                 rst_read_row_idx <= '0;
                 if (rst_k_iteration_idx == (wgt_k_size_i >> 2) - 1) begin
@@ -164,13 +180,15 @@ for (genvar c = 0; c < 4; c++) begin : gen_accumulate
         ((ext_en_i || rst_first_k_tile) ? SUM_WIDTH'(0) : SUM_WIDTH'($signed(mem_data_R_i[c])));
 end
 
-// Final results use the same ReLU and clipping in every mode.
+// ReLU is optional; signed INT8 saturation remains enabled in every mode.
 always_comb begin
     for (integer c = 0; c < 4; c++) begin
-        if (accumulated[c] < 0)
+        if (relu_en_i && accumulated[c] < 0)
             final_result[c] = '0;
         else if (accumulated[c] > MAX_RESULT)
             final_result[c] = MAX_RESULT;
+        else if (accumulated[c] < MIN_RESULT)
+            final_result[c] = MIN_RESULT;
         else
             final_result[c] = accumulated[c];
     end
@@ -189,7 +207,7 @@ always_comb begin
                    + rst_m_tile_idx * 4 + rst_row_in_tile;
         for (integer c = 0; c < 4; c++) begin
             if (rst_last_k_tile) begin
-                // Apply ReLU only after all K tiles have been accumulated.
+                // Apply final clipping and optional ReLU after all K tiles.
                 mem_data_o[c] = $signed(final_result[c]);
             end else begin
                 if (accumulated[c] > MAX_PSUM)

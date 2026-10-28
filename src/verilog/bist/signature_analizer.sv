@@ -1,11 +1,12 @@
 
-module signature_analyzer 
+module signature_analyzer_3
 #(
    parameter DATA_WIDTH = 64
 )
 (
    input  logic                  clk_i,
    input  logic                  rstn_i,
+   input  logic                  clear_i,
    input  logic                  bypass_i,
    input  logic                  stop_i,
    input  logic [DATA_WIDTH-1:0] seed_i,
@@ -23,6 +24,7 @@ module signature_analyzer
    //state update (ff)
    always_ff @(posedge clk_i or negedge rstn_i) 
       if(~rstn_i)   r_state <= IDLE;
+      else if(clear_i) r_state <= IDLE;
       else          r_state <= r_next_state;
    
    //next state (combo)
@@ -38,11 +40,12 @@ module signature_analyzer
    //next logic (combo+ff)
    assign misr_done  = r_next_state == DONE;
 
-   misr #(
+   misr_3 #(
       .NUM_BITS(DATA_WIDTH)
    ) misr_0 (
       .clk_i        (clk_i          ),
       .rstn_i       (rstn_i         ),
+      .clear_i      (clear_i        ),
       .bypass_i     (bypass_i       ),
       .done_i       (misr_done      ),
       .seed_i       (seed_i         ),

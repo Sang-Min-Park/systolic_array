@@ -8,10 +8,10 @@ import unittest
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 from systolic_model import (BistSimulator, ExternalSimulator, Simulator, make_memory,
-                            next_pattern, pack, read_matrix, stop_code, unpack, write_matrix)
+                            final_result, next_pattern, next_signature, pack, read_matrix, stop_code, unpack, write_matrix)
 
 
-def reference(a, b):
+def reference(a, b, relu=False):
     output = []
     for row in a:
         values = []
@@ -22,13 +22,50 @@ def reference(a, b):
                 if first + 4 < len(b):
                     saved = min(32767, max(-32768, total))
                 else:
-                    saved = min(127, max(0, total))
+                    saved = min(127, max(-128, total))
+                    if relu:
+                        saved = max(0, saved)
             values.append(saved)
         output.append(values)
     return output
 
 
 class ModelTests(unittest.TestCase):
+    def test_zero_middle_tiles_preserve_results_and_shorten_schedule(self):
+        rng = random.Random(3100)
+        for m, n, k in [(4, 8, 16), (8, 8, 4), (8, 8, 8),
+                        (8, 8, 12), (12, 12, 20), (64, 64, 64)]:
+            a = [[rng.randrange(-128, 128) for _ in range(k)] for _ in range(m)]
+            b = [[rng.randrange(-128, 128) for _ in range(n)] for _ in range(k)]
+            for nt in range(n // 4):
+                for kt in range(k // 4):
+                    if (kt + nt) % 2:
+                        for r in range(4):
+                            b[kt * 4 + r][nt * 4:nt * 4 + 4] = [0] * 4
+            count = sum(all(b[kt * 4 + r][nt * 4 + c] == 0
+                            for r in range(4) for c in range(4))
+                        for nt in range(n // 4) for kt in range(1, k // 4 - 1)) if m > 5 else 0
+            for relu in (False, True):
+                with self.subTest(m=m, n=n, k=k, relu=relu):
+                    dense = Simulator(a, b, relu=relu)
+                    sparse = Simulator(a, b, relu=relu, zero_tile=True)
+                    self.assertEqual(dense.run(), reference(a, b, relu))
+                    self.assertEqual(sparse.run(), dense.read_output())
+                    self.assertEqual(sparse.skipped_tiles, count)
+                    self.assertEqual(dense.compute_cycles - sparse.compute_cycles, count * (m - 5))
+                    self.assertEqual(dense.partial_sum_writes - sparse.partial_sum_writes, count * (m - 5))
+                    self.assertEqual(dense.weight_tile_order, sparse.weight_tile_order)
+
+    def test_zero_detection_checks_every_weight_row(self):
+        for row in range(4):
+            a = [[127] * 12 for _ in range(8)]
+            b = [[0] * 4 for _ in range(12)]
+            b[4 + row][row] = -128
+            sim = Simulator(a, b, zero_tile=True)
+            self.assertEqual(sim.run(), reference(a, b))
+            self.assertEqual(sim.skipped_tiles, 0)
+            self.assertEqual(sim.compute_cycles, 32)
+
     def test_memory_layout_and_offsets(self):
         a = [[row * 16 + col - 64 for col in range(8)] for row in range(8)]
         memory = make_memory(a, 7)
@@ -66,12 +103,14 @@ class ModelTests(unittest.TestCase):
                     sim.run()
 
     def test_intermediate_saturation_and_final_relu(self):
-        for sign, expected in [(1, 0), (-1, 127)]:
+        for sign, expected in [(1, -128), (-1, 127)]:
             a = [[sign * 127] * 4 + [-sign * 127] * 4 for _ in range(4)]
             b = [[127] * 4 for _ in range(8)]
-            sim = Simulator(a, b)
-            self.assertEqual(sim.run(), [[expected] * 4 for _ in range(4)])
-            self.assertEqual(sim.saturation_events, 16)
+            for relu in (False, True):
+                sim = Simulator(a, b, relu=relu)
+                final = max(0, expected) if relu else expected
+                self.assertEqual(sim.run(), [[final] * 4 for _ in range(4)])
+                self.assertEqual(sim.saturation_events, 16)
         a = [[127, 127, -127, -127] for _ in range(4)]
         sim = Simulator(a, [[127] * 4 for _ in range(4)])
         self.assertEqual(sim.run(), [[0] * 4 for _ in range(4)])
@@ -128,7 +167,7 @@ class ModelTests(unittest.TestCase):
                 expected = reference(a, weights)
                 signature = ((seed & 0xffffffff) << 32) | (seed >> 32)
                 for row in expected:
-                    signature = next_pattern(signature) ^ pack(row)
+                    signature = next_signature(signature) ^ pack(row)
                 sim = BistSimulator(seed, state)
                 self.assertEqual(sim.run(weights, valid), expected)
                 self.assertEqual(sim.signature, signature)
@@ -142,11 +181,48 @@ class ModelTests(unittest.TestCase):
 
     def test_lfsr_tap_positions(self):
         self.assertEqual(next_pattern(0), 0)
-        self.assertEqual(next_pattern(1 << 63), 0)
-        for bit in (62, 61, 60, 51):
+        self.assertEqual(next_pattern(1 << 63), 1)
+        for bit in (62, 61, 52):
             self.assertEqual(next_pattern(1 << bit), (1 << (bit + 1)) | 1)
+        self.assertEqual(next_pattern(1 << 60), 1 << 61)
+        self.assertEqual(next_signature(1 << 63), 0)
+        for bit in (62, 61, 60, 51):
+            self.assertEqual(next_signature(1 << bit), (1 << (bit + 1)) | 1)
         self.assertEqual(next_pattern((1 << 64) - 1), (1 << 64) - 2)
         self.assertEqual(stop_code(1, 4), 16)
+
+    def test_optional_relu_all_paths(self):
+        self.assertEqual(final_result(-1), -1)
+        values = [-1000, -129, -128, -1, 0, 127, 128, 1000]
+        self.assertEqual([final_result(v) for v in values],
+                         [-128, -128, -128, -1, 0, 127, 127, 127])
+        self.assertEqual([final_result(v, True) for v in values],
+                         [0, 0, 0, 0, 0, 127, 127, 127])
+        a = [[-128, -1, 0, 127, 7, -8, 1, -2] for _ in range(8)]
+        identity8 = [[int(r == c) for c in range(8)] for r in range(8)]
+        identity4 = [[int(r == c) for c in range(4)] for r in range(4)]
+        seed = 0x123456789abcdef0
+        for relu in (False, True):
+            with self.subTest(relu=relu):
+                memory = Simulator(a, identity8, relu=relu)
+                self.assertEqual(memory.run(), reference(a, identity8, relu))
+                external = ExternalSimulator(relu=relu)
+                external.load_weights(identity4)
+                for row in a:
+                    external.step(row[:4])
+                    external.step()
+                self.assertEqual(external.drain(), reference([row[:4] for row in a], identity4, relu))
+                state, inputs = seed, []
+                for _ in range(16):
+                    state = next_pattern(state)
+                    inputs.append(unpack(state >> 32))
+                expected = reference(inputs, identity4, relu)
+                signature = ((seed & 0xffffffff) << 32) | (seed >> 32)
+                for row in expected:
+                    signature = next_signature(signature) ^ pack(row)
+                bist = BistSimulator(seed, state, relu=relu)
+                self.assertEqual(bist.run(identity4, (True, False, True)), expected)
+                self.assertEqual(bist.signature, signature)
 
     def test_cli_modes(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -160,15 +236,18 @@ class ModelTests(unittest.TestCase):
                 args = {'memory': ['4', '4', '4', str(a_file), str(b_file), str(c_file)],
                         'external': ['4', str(a_file), str(b_file), str(c_file), '--valid-pattern', '101'],
                         'bist': [str(b_file), str(c_file), '--patterns', '4', '--valid-pattern', '1101']}[mode]
-                result = subprocess.run([sys.executable, str(SCRIPTS / 'systolic_model.py'), mode] + args,
-                                        cwd=folder, universal_newlines=True,
-                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                output = read_matrix(c_file, 4, 4)
-                if mode != 'bist':
-                    self.assertEqual(output, reference(a, b))
-                else:
-                    self.assertIn('signature:', result.stdout)
+                for relu in (False, True):
+                    command = [sys.executable, str(SCRIPTS / 'systolic_model.py'), mode] + args
+                    if relu:
+                        command.append('--relu')
+                    result = subprocess.run(command, cwd=folder, universal_newlines=True,
+                                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    output = read_matrix(c_file, 4, 4)
+                    if mode != 'bist':
+                        self.assertEqual(output, reference(a, b, relu))
+                    else:
+                        self.assertIn('signature:', result.stdout)
 
     def test_invalid_inputs(self):
         a = [[1] * 4 for _ in range(4)]

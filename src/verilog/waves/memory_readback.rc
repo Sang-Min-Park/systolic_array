@@ -1,0 +1,86 @@
+Magic 271485
+Revision 1.0
+
+; Memory readback and functional-clock pause debugging.
+openDirFile -d / "." "memory_readback.fsdb"
+signalSpacing 3
+top 0
+
+addGroup "Control"
+activeDirFile "." "memory_readback.fsdb"
+addSignal -h 15 /tb_memory_readback/clk_i
+addSignal -h 15 /tb_memory_readback/rstn_async_i
+addSignal -h 15 /tb_memory_readback/en_i
+addSignal -h 15 /tb_memory_readback/start_i
+addSignal -h 15 /tb_memory_readback/ext_en_i
+addSignal -h 15 /tb_memory_readback/done
+addSignal -h 15 /tb_memory_readback/data_config[54:0]
+
+addGroup "Memory_access_controller"
+activeDirFile "." "memory_readback.fsdb"
+addSignal -h 15 /tb_memory_readback/dut/g_clk
+addSignal -h 15 /tb_memory_readback/dut/compute_busy_w
+addSignal -h 15 /tb_memory_readback/dut/compute_start_w
+addSignal -h 15 /tb_memory_readback/dut/mem_access_request_w
+addSignal -h 15 /tb_memory_readback/dut/mem_access_state[1:0]
+addSignal -h 15 /tb_memory_readback/dut/mem_access_target[1:0]
+addSignal -h 15 /tb_memory_readback/dut/mem_access_write_en
+addSignal -h 15 /tb_memory_readback/dut/mem_access_write_data[31:0]
+addSignal -h 15 -UNSIGNED /tb_memory_readback/dut/mem_access_addr[9:0]
+addSignal -h 15 /tb_memory_readback/dut/mem_access_active_w
+addSignal -h 15 /tb_memory_readback/dut/mem_access_done
+addSignal -h 15 /tb_memory_readback/dut/mem_access_output_w
+
+addGroup "Activation_weight_access"
+activeDirFile "." "memory_readback.fsdb"
+addSignal -h 15 /tb_memory_readback/ib_cenb
+addSignal -h 15 /tb_memory_readback/ib_wenb
+addSignal -h 15 -UNSIGNED /tb_memory_readback/ib_addr[9:0]
+addSignal -h 15 /tb_memory_readback/ib_write_data[31:0]
+addSignal -h 15 /tb_memory_readback/ib_data[31:0]
+addSignal -h 15 /tb_memory_readback/wb_cenb
+addSignal -h 15 /tb_memory_readback/wb_wenb
+addSignal -h 15 -UNSIGNED /tb_memory_readback/wb_addr[9:0]
+addSignal -h 15 /tb_memory_readback/wb_write_data[31:0]
+addSignal -h 15 /tb_memory_readback/wb_data[31:0]
+
+addGroup "SRAM_read"
+activeDirFile "." "memory_readback.fsdb"
+addSignal -h 15 /tb_memory_readback/ob_read_cenb
+addSignal -h 15 /tb_memory_readback/ob_read_wenb
+addSignal -h 15 -UNSIGNED /tb_memory_readback/ob_read_addr[9:0]
+addSignal -h 15 /tb_memory_readback/ob_read_data[63:0]
+
+addGroup "SRAM_write"
+activeDirFile "." "memory_readback.fsdb"
+addSignal -h 15 /tb_memory_readback/ob_write_cenb
+addSignal -h 15 /tb_memory_readback/ob_write_wenb
+addSignal -h 15 -UNSIGNED /tb_memory_readback/ob_write_addr[9:0]
+addSignal -h 15 /tb_memory_readback/ob_write_data[63:0]
+
+addGroup "Zero_tile_skipping"
+activeDirFile "." "memory_readback.fsdb"
+addSignal -h 15 /tb_memory_readback/dut/matrix_mult_0/zero_tile_en
+addSignal -h 15 /tb_memory_readback/dut/matrix_mult_0/wgt_response_valid
+addSignal -h 15 /tb_memory_readback/dut/matrix_mult_0/wgt_response_row[1:0]
+addSignal -h 15 /tb_memory_readback/dut/matrix_mult_0/wgt_rows_zero
+addSignal -h 15 /tb_memory_readback/dut/matrix_mult_0/zero_tile_skip
+addSignal -h 15 -UNSIGNED /tb_memory_readback/dut/matrix_mult_0/cycle[5:0]
+addSignal -h 15 -UNSIGNED /tb_memory_readback/dut/matrix_mult_0/wgt_k_tile_idx[4:0]
+addSignal -h 15 /tb_memory_readback/dut/matrix_mult_0/u_output_scheduler/zero_tile_skip_pipe[6:0]
+addSignal -h 15 -UNSIGNED /tb_memory_readback/dut/matrix_mult_0/u_output_scheduler/rst_read_row_idx[6:0]
+addSignal -h 15 -UNSIGNED /tb_memory_readback/dut/matrix_mult_0/u_output_scheduler/rst_k_iteration_idx[4:0]
+
+addGroup "Write_analyzer"
+activeDirFile "." "memory_readback.fsdb"
+addSignal -h 15 /tb_memory_readback/test_config[69:0]
+addSignal -h 15 /tb_memory_readback/dut/sa_dut_data_w[63:0]
+addSignal -h 15 /tb_memory_readback/dut/sa_dut_valid_w
+addSignal -h 15 /tb_memory_readback/dut/sa_stop_w
+addSignal -h 15 /tb_memory_readback/dut/sa_data_w[63:0]
+addSignal -h 15 /tb_memory_readback/dut/sa_valid_w
+
+addGroup "Held_result"
+activeDirFile "." "memory_readback.fsdb"
+addSignal -h 15 /tb_memory_readback/ext_result[63:0]
+addSignal -h 15 /tb_memory_readback/ext_valid

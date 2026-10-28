@@ -1,0 +1,81 @@
+Magic 271485
+Revision 1.0
+
+; Signal groups for RTL debugging.
+openDirFile -d / "." "matrix_mult.fsdb"
+signalSpacing 3
+top 0
+
+addGroup "Control"
+activeDirFile "." "matrix_mult.fsdb"
+addSignal -h 15 /tb_matrix_mult/clk_i
+addSignal -h 15 /tb_matrix_mult/rst_n
+addSignal -h 15 /tb_matrix_mult/start_i
+addSignal -h 15 /tb_matrix_mult/done_o
+
+addGroup "ReLU_config"
+activeDirFile "." "matrix_mult.fsdb"
+addSignal -h 15 /tb_matrix_mult/matrix_mult_0/relu_en
+addSignal -h 15 /tb_matrix_mult/matrix_mult_0/mem_relu_en
+
+addGroup "Input_coordinates"
+activeDirFile "." "matrix_mult.fsdb"
+addSignal -h 15 /tb_matrix_mult/matrix_mult_0/current_state[1:0]
+addSignal -h 15 -UNSIGNED /tb_matrix_mult/matrix_mult_0/cycle[5:0]
+addSignal -h 15 -UNSIGNED /tb_matrix_mult/matrix_mult_0/wgt_k_tile_idx[4:0]
+addSignal -h 15 -UNSIGNED /tb_matrix_mult/matrix_mult_0/wgt_n_tile_idx[4:0]
+addSignal -h 15 /tb_matrix_mult/matrix_mult_0/act_feed_en
+addSignal -h 15 /tb_matrix_mult/matrix_mult_0/act_feed_done
+
+addGroup "Activation_memory"
+activeDirFile "." "matrix_mult.fsdb"
+addSignal -h 15 /tb_matrix_mult/ib_mem_cenb_o
+addSignal -h 15 -UNSIGNED /tb_matrix_mult/ib_mem_addr_o[9:0]
+addSignal -h 15 /tb_matrix_mult/ib_mem_data_i[0][7:0]
+addSignal -h 15 /tb_matrix_mult/ib_mem_data_i[3][7:0]
+
+addGroup "Weight_memory"
+activeDirFile "." "matrix_mult.fsdb"
+addSignal -h 15 /tb_matrix_mult/wb_mem_cenb_o
+addSignal -h 15 -UNSIGNED /tb_matrix_mult/wb_mem_addr_o[9:0]
+addSignal -h 15 /tb_matrix_mult/wb_mem_data_i[0][7:0]
+addSignal -h 15 /tb_matrix_mult/wb_mem_data_i[3][7:0]
+
+addGroup "Weight_load"
+activeDirFile "." "matrix_mult.fsdb"
+addSignal -h 15 /tb_matrix_mult/matrix_mult_0/weight_en[3:0]
+addSignal -h 15 /tb_matrix_mult/matrix_mult_0/gen_row[0]/gen_col[0]/u_pe/weight_reg[7:0]
+addSignal -h 15 /tb_matrix_mult/matrix_mult_0/gen_row[3]/gen_col[0]/u_pe/weight_reg[7:0]
+
+addGroup "PE00"
+activeDirFile "." "matrix_mult.fsdb"
+addSignal -h 15 /tb_matrix_mult/matrix_mult_0/gen_row[0]/gen_col[0]/u_pe/act_i[7:0]
+addSignal -h 15 /tb_matrix_mult/matrix_mult_0/gen_row[0]/gen_col[0]/u_pe/weight_en_i
+addSignal -h 15 /tb_matrix_mult/matrix_mult_0/gen_row[0]/gen_col[0]/u_pe/psum_i[17:0]
+addSignal -h 15 /tb_matrix_mult/matrix_mult_0/gen_row[0]/gen_col[0]/u_pe/psum_o[17:0]
+
+addGroup "Output_coordinates"
+activeDirFile "." "matrix_mult.fsdb"
+addSignal -h 15 /tb_matrix_mult/matrix_mult_0/u_output_scheduler/rst_valid_pipe[7:0]
+addSignal -h 15 /tb_matrix_mult/matrix_mult_0/u_output_scheduler/rst_read_valid
+addSignal -h 15 /tb_matrix_mult/matrix_mult_0/u_output_scheduler/rst_aligned_valid
+addSignal -h 15 -UNSIGNED /tb_matrix_mult/matrix_mult_0/u_output_scheduler/rst_read_row_idx[6:0]
+addSignal -h 15 -UNSIGNED /tb_matrix_mult/matrix_mult_0/u_output_scheduler/rst_k_iteration_idx[4:0]
+addSignal -h 15 -UNSIGNED /tb_matrix_mult/matrix_mult_0/u_output_scheduler/rst_read_n_tile_idx[4:0]
+addSignal -h 15 /tb_matrix_mult/matrix_mult_0/u_output_scheduler/rst_first_k_tile
+addSignal -h 15 /tb_matrix_mult/matrix_mult_0/u_output_scheduler/rst_last_k_tile
+addSignal -h 15 /tb_matrix_mult/matrix_mult_0/u_output_scheduler/rst_last_word
+
+addGroup "Result_read"
+activeDirFile "." "matrix_mult.fsdb"
+addSignal -h 15 /tb_matrix_mult/ob_mem_cenb_R_o
+addSignal -h 15 -UNSIGNED /tb_matrix_mult/ob_mem_addr_R_o[9:0]
+addSignal -h 15 /tb_matrix_mult/ob_mem_data_R_i[0][15:0]
+
+addGroup "Result_write"
+activeDirFile "." "matrix_mult.fsdb"
+addSignal -h 15 /tb_matrix_mult/ob_mem_cenb_W_o
+addSignal -h 15 /tb_matrix_mult/ob_mem_wenb_W_o
+addSignal -h 15 -UNSIGNED /tb_matrix_mult/ob_mem_addr_W_o[9:0]
+addSignal -h 15 /tb_matrix_mult/ob_mem_data_W_o[0][15:0]
+addSignal -h 15 /tb_matrix_mult/ob_mem_data_W_o[3][15:0]

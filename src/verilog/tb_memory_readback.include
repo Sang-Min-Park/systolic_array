@@ -1,0 +1,4 @@
+-f ./tb_external_bist.include
+./mem_emulator.sv
+./mem2p_emulator.sv
+./tb_memory_readback.sv

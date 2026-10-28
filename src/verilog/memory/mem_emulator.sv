@@ -1,4 +1,4 @@
-module mem_emulator #(parameter WIDTH=32, SIZE=256) (
+module mem_emulator_3 #(parameter WIDTH=32, SIZE=256) (
 	input  logic                    clk_i,
 	input  logic                    cenb_i,	// memory enable, active low
 	input  logic                    wenb_i,	// write enable, active low

@@ -9,3 +9,16 @@ ucli.key
 *.tar.gz
 __pycache__/
 *.py[cod]
+syn/
+apr/
+*.ddc
+*.db
+*.lib
+*.lef
+*.gds
+*.sdf
+*.sdc
+*.ndm
+*.ndm/
+*.syn.v
+*.apr.v

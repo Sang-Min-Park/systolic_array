@@ -1,4 +1,4 @@
-module input_scheduler #(
+module input_scheduler_3 #(
     parameter WIDTH  = 8,
     parameter I_SIZE = 1024,
     parameter M      = 64

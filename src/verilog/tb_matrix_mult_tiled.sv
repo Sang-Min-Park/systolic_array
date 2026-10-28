@@ -58,7 +58,6 @@ module tb_matrix_mult_tiled;
 
    logic                         start_i;
    logic                         done_o;
-   logic                         sample_clk_dut;
 
    // Wrapper control signals
    logic                         en_i;
@@ -66,6 +65,7 @@ module tb_matrix_mult_tiled;
    test_config_struct            test_config_i;
    data_config_struct            data_config_i;
    external_inputs_struct        ext_inputs_i;
+   extra_output_bits_struct      extra_output_bits;
 
    // Wrapper monitor signals
    logic [Tn-1:0][WIDTH-1:0]    ext_result_o;
@@ -91,7 +91,7 @@ module tb_matrix_mult_tiled;
    end
 
    // -- Memory Instance: Input Buffer Memory -- //
-   mem_emulator #(.WIDTH(Tm*WIDTH), .SIZE(I_SIZE))
+   mem_emulator_3 #(.WIDTH(Tm*WIDTH), .SIZE(I_SIZE))
       ib_mem (
          .clk_i   (clk_i),
          .cenb_i  (ib_mem_cenb_o),
@@ -102,7 +102,7 @@ module tb_matrix_mult_tiled;
    );
 
    // -- Memory Instance: Weight Buffer Memory -- //
-   mem_emulator #(.WIDTH(Tn*WIDTH), .SIZE(W_SIZE))
+   mem_emulator_3 #(.WIDTH(Tn*WIDTH), .SIZE(W_SIZE))
       wb_mem (
          .clk_i   (clk_i),
          .cenb_i  (wb_mem_cenb_o),
@@ -113,7 +113,7 @@ module tb_matrix_mult_tiled;
    );
 
    // -- Memory Instance: Output Buffer Memory -- //
-   mem2p_emulator #(.WIDTH(Tn*ACCUM_WIDTH), .SIZE(O_SIZE))
+   mem2p_emulator_3 #(.WIDTH(Tn*ACCUM_WIDTH), .SIZE(O_SIZE))
       ob_mem (
          .clk_i    (clk_i),
          .cenb_a_i (ob_mem_cenb_R_o),
@@ -130,7 +130,7 @@ module tb_matrix_mult_tiled;
    );
 
    // -- DUT Instance: Matrix Mult -- //
-   matrix_mult #(
+   matrix_mult_3 #(
       .WIDTH       (WIDTH),
       .ACCUM_WIDTH (ACCUM_WIDTH),
       .W_SIZE      (W_SIZE),
@@ -146,7 +146,7 @@ module tb_matrix_mult_tiled;
       .ext_inputs_i        (ext_inputs_i),
       .ext_result_o        (ext_result_o),
       .ext_valid_o         (ext_valid_o),
-      .extra_output_bits_o (),
+      .extra_output_bits_o (extra_output_bits),
 
       .ib_mem_cenb_o       (ib_mem_cenb_o),
       .ib_mem_wenb_o       (ib_mem_wenb_o),
@@ -175,6 +175,7 @@ module tb_matrix_mult_tiled;
    integer golden   [0:63][0:63];
    integer writes, weight_reads, tests;
    integer compute_cycles, act_reads;
+   integer relu_enable;
 
    always @(posedge clk_i) begin
       if (matrix_mult_0.active) begin
@@ -213,6 +214,7 @@ module tb_matrix_mult_tiled;
          compute_cycles = 0;
          act_reads = 0;
          data_config_i = '0;
+         data_config_i.extra_config_i[0] = relu_enable[0];
          data_config_i.i_rows = rows;
          data_config_i.w_cols = cols;
          data_config_i.w_rows = depth;
@@ -259,7 +261,8 @@ module tb_matrix_mult_tiled;
                   end
                end
                if (sum > 127) sum = 127;
-               if (sum < 0) sum = 0;
+               if (sum < -128) sum = -128;
+               if (relu_enable && sum < 0) sum = 0;
                golden[r][c] = sum;
                addr = output_offset + (c / 4) * rows + r;
                ob_mem.data[addr] = 'x;
@@ -268,6 +271,9 @@ module tb_matrix_mult_tiled;
          start_i = 1;
          @(negedge clk_i);
          start_i = 0;
+         if (done_o !== 0) $fatal(1, "DONE did not clear on accepted start");
+         if (extra_output_bits.extra_config_o !== {7'b0, relu_enable[0]})
+            $fatal(1, "ReLU scan readback mismatch");
          @(posedge done_o);
          @(negedge clk_i);
          for (integer r = 0; r < rows; r++)
@@ -284,8 +290,10 @@ module tb_matrix_mult_tiled;
             $fatal(1, "Unexpected partial-sum write count");
          if (compute_cycles != rows * (depth / 4) * (cols / 4) + 8)
             $fatal(1, "Unexpected compute cycles: %0d", compute_cycles);
-         @(negedge clk_i);
-         if (done_o !== 0) $fatal(1, "DONE pulse did not clear");
+         repeat (3) begin
+            @(negedge clk_i);
+            if (done_o !== 1) $fatal(1, "DONE did not remain high after completion");
+         end
          tests++;
          $display("PASS: M=%0d N=%0d K=%0d pattern=%0d cycles=%0d",
             rows, cols, depth, pattern, compute_cycles);
@@ -293,6 +301,10 @@ module tb_matrix_mult_tiled;
    endtask
 
    initial begin
+      if (!$value$plusargs("RELU=%d", relu_enable))
+         relu_enable = 0;
+      if (relu_enable != 0 && relu_enable != 1)
+         $fatal(1, "RELU must be 0 or 1");
       rst_n = 0;
       start_i = 0;
       ext_en_i = 0;

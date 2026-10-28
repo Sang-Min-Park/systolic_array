@@ -10,8 +10,8 @@ def saturate(value, bits):
     return min((1 << (bits - 1)) - 1, max(-(1 << (bits - 1)), value))
 
 
-def final_result(value):
-    return min(127, max(0, value))
+def final_result(value, relu=False):
+    return saturate(max(0, value) if relu else value, 8)
 
 
 def pack(values, bits=8):
@@ -67,7 +67,13 @@ def make_memory(matrix, offset=0):
 
 
 def next_pattern(state):
-    """Use the XOR taps in the supplied RTL, with zero-based Python bit indices."""
+    """Updated LFSR uses [63:0] indexing with taps 63, 62, 61, and 52."""
+    feedback = ((state >> 63) ^ (state >> 62) ^ (state >> 61) ^ (state >> 52)) & 1
+    return ((state << 1) | feedback) & ((1 << 64) - 1)
+
+
+def next_signature(state):
+    """MISR retains [64:1] indexing; its numerical tap positions differ from LFSR."""
     feedback = ((state >> 62) ^ (state >> 61) ^ (state >> 60) ^ (state >> 51)) & 1
     return ((state << 1) | feedback) & ((1 << 64) - 1)
 
@@ -163,7 +169,8 @@ class Datapath:
 
 class Simulator:
     """Memory-mode computation; cycles count COMPUTE edges, excluding reset/start/DONE."""
-    def __init__(self, a, b, act_offset=0, wgt_offset=0, rst_offset=0):
+    def __init__(self, a, b, act_offset=0, wgt_offset=0, rst_offset=0, relu=False,
+                 zero_tile=False):
         self.m, self.k = len(a), len(a[0]) if a else 0
         self.n = len(b[0]) if b else 0
         if any(size < 4 or size > 64 or size % 4 for size in (self.m, self.n, self.k)):
@@ -177,6 +184,9 @@ class Simulator:
         self.partial_sum_memory = [0] * 1024
         self.act_offset, self.wgt_offset, self.rst_offset = act_offset, wgt_offset, rst_offset
         self.datapath = Datapath()
+        self.relu = bool(relu)
+        self.zero_tile = bool(zero_tile)
+        self.skipped_tiles = 0
         self.compute_cycles = 0
         self.weight_loads = 0
         self.partial_sum_writes = 0
@@ -195,7 +205,7 @@ class Simulator:
         for col, value in enumerate(sums):
             total = value + (previous[col] if k_tile else 0)
             if k_tile == self.k // 4 - 1:
-                values.append(final_result(total))
+                values.append(final_result(total, self.relu))
             else:
                 saved = saturate(total, 16)
                 self.saturation_events += saved != total
@@ -215,7 +225,16 @@ class Simulator:
         if self.has_run:
             raise ValueError('Create a new Simulator for each multiplication')
         self.has_run = True
-        requests = self.m * (self.k // 4) * (self.n // 4)
+        schedule = []
+        for nt in range(self.n // 4):
+            for kt in range(self.k // 4):
+                base = self.wgt_offset + nt * self.k + kt * 4
+                skip = (self.zero_tile and self.m > 5 and 0 < kt < self.k // 4 - 1
+                        and not any(self.weight_memory[base:base + 4]))
+                self.skipped_tiles += skip
+                # Four synchronous responses are known at the fifth request edge.
+                schedule.extend((nt, kt, row) for row in range(5 if skip else self.m))
+        requests = len(schedule)
         request_idx = 0
         response = None
         weight_response = [0] * 4
@@ -238,8 +257,7 @@ class Simulator:
             pending = None if aligned is None else (*aligned, previous)
             # Read one activation word per clock without draining between tiles.
             if request_idx < requests:
-                n_tile, remaining = divmod(request_idx, self.m * (self.k // 4))
-                k_tile, row = divmod(remaining, self.m)
+                n_tile, k_tile, row = schedule[request_idx]
                 word = self.input_memory[self.act_offset + k_tile * self.m + row]
                 response = ((n_tile, k_tile, row), unpack(word))
                 if row < 4:
@@ -256,8 +274,9 @@ class Simulator:
 
 class ExternalSimulator:
     """Each step is one rising clock; None denotes an invalid activation word."""
-    def __init__(self):
+    def __init__(self, relu=False):
         self.datapath = Datapath()
+        self.relu = bool(relu)
         self.weights = [0] * 4
         self.weight_en_d = False
         self.inputs_seen = 0
@@ -278,7 +297,7 @@ class ExternalSimulator:
         # Consumers sample the aligned result produced by the previous edge.
         result = None
         if self.datapath.aligned is not None:
-            result = [final_result(value) for value in self.datapath.aligned[1]]
+            result = [final_result(value, self.relu) for value in self.datapath.aligned[1]]
             self.results.append(result)
             self.outputs_seen += 1
         tag = self.inputs_seen if activations is not None else None
@@ -335,8 +354,8 @@ class PatternGenerator:
 
 class BistSimulator(ExternalSimulator):
     """Wrapper bypass=000, mode=00; weights are supplied externally."""
-    def __init__(self, seed, stop, signature_seed=None):
-        super().__init__()
+    def __init__(self, seed, stop, signature_seed=None, relu=False):
+        super().__init__(relu=relu)
         self.driver = PatternGenerator(seed, stop)
         self.signature = ((seed & 0xffffffff) << 32) | (seed >> 32)
         if signature_seed is not None:
@@ -355,7 +374,7 @@ class BistSimulator(ExternalSimulator):
         activations = unpack(self.driver.word >> 32) if input_valid else None
         result = super().step(activations, weights, weight_en)
         if result is not None and not self.signature_valid:
-            self.signature = next_pattern(self.signature) ^ pack(result)
+            self.signature = next_signature(self.signature) ^ pack(result)
         self.sa_state = state
         self.driver.step(driver_valid)
         return self.signature if self.signature_valid else None
@@ -381,6 +400,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     modes = parser.add_subparsers(dest='mode')
     memory = modes.add_parser('memory', help='Continuous tiled A[M,K] x B[K,N]')
+    memory.add_argument('--zero-tile', action='store_true',
+                        help='Skip the remaining rows of zero middle-K weight tiles (default: off)')
     for name in ('m', 'n', 'k'):
         memory.add_argument(name, type=int)
     for name in ('a_file', 'b_file', 'c_file'):
@@ -398,6 +419,8 @@ def main():
     bist.add_argument('--seed', type=lambda value: int(value, 0), default=0x123456789abcdef0)
     bist.add_argument('--patterns', type=int, default=32)
     bist.add_argument('--valid-pattern', type=valid_pattern, default=(True,))
+    for mode in (memory, external, bist):
+        mode.add_argument('--relu', action='store_true', help='Enable final ReLU (default: off)')
     args = parser.parse_args()
     if args.mode is None:
         parser.error('Choose memory, external, or bist')
@@ -405,14 +428,15 @@ def main():
         if args.mode == 'memory':
             sim = Simulator(read_matrix(args.a_file, args.m, args.k),
                             read_matrix(args.b_file, args.k, args.n),
-                            args.act_offset, args.wgt_offset, args.rst_offset)
+                            args.act_offset, args.wgt_offset, args.rst_offset, relu=args.relu,
+                            zero_tile=args.zero_tile)
             result = sim.run()
             print(f'Compute cycles: {sim.compute_cycles}; weight tiles: {sim.weight_loads}')
         elif args.mode == 'external':
             if args.m < 1:
                 raise ValueError('M must be positive')
             a = read_matrix(args.a_file, args.m, 4)
-            sim = ExternalSimulator()
+            sim = ExternalSimulator(relu=args.relu)
             sim.load_weights(read_matrix(args.b_file, 4, 4))
             row, cycle = 0, 0
             while row < args.m:
@@ -423,7 +447,7 @@ def main():
             result = sim.drain()
             print(f'Input rows: {sim.inputs_seen}; output rows: {sim.outputs_seen}')
         else:
-            sim = BistSimulator(args.seed, stop_code(args.seed, args.patterns))
+            sim = BistSimulator(args.seed, stop_code(args.seed, args.patterns), relu=args.relu)
             result = sim.run(read_matrix(args.b_file, 4, 4), args.valid_pattern,
                              max_cycles=(args.patterns + 1) * len(args.valid_pattern) + 32)
             if sim.inputs_seen != args.patterns:

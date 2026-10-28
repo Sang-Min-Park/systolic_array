@@ -1,4 +1,4 @@
-module async_nreset_synchronizer (
+module async_nreset_synchronizer_3 (
     input  logic clk_i,
     input  logic async_nreset_i,
     output logic rstn_o

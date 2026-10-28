@@ -1,4 +1,4 @@
-TOPLEVEL= matrix_mult_wrapper
+TOPLEVEL= matrix_mult_wrapper_3
 TESTNAME=default
 SRC_VERILOG=../../src/verilog
 SRC_FOLDER= $(SRC_VERILOG)
@@ -21,7 +21,7 @@ endif
 	# ./$(TOPLEVEL).sv \
 	# ./tb_fsm.sv
 
-.DEFAULT_GOAL := vcs
+.DEFAULT_GOAL := memory
 
 # Move all the verilog files from the source directory over to this simulation directory
 link_src:
@@ -74,5 +74,62 @@ clean:
 	rm -rf simv.daidir
 	rm -rf csrc
 	rm -rf simv
+
+# RTL simulations with FSDB waveforms.
+VCS ?= $(if $(VCS_HOME),$(VCS_HOME)/bin/vcs,vcs)
+VERDI ?= $(if $(VERDI_HOME),$(VERDI_HOME)/bin/verdi,verdi)
+export VCS_HOME VERDI_HOME
+
+DATA_DIR ?= ../../src/verilog/tests/example
+RELU ?= 0
+MEMORY_OBSERVE ?= 0
+ZERO_TILE ?= 0
+WAVE_DIR = $(SRC_VERILOG)/waves
+
+.PHONY: memory_build memory external_bist_build external bist wave_memory wave_external wave_bist
+.PHONY: readback_build readback wave_readback
+
+readback_build: link_src
+	$(VCS) -full64 -sverilog -timescale=1ns/1ps \
+		-debug_access+all -kdb +define+FSDB \
+		-top tb_memory_readback -f tb_memory_readback.include \
+		-o simv_memory_readback -l memory_readback_compile.log
+
+readback: readback_build
+	./simv_memory_readback -no_save +RELU=$(RELU) +MEMORY_OBSERVE=$(MEMORY_OBSERVE) +ZERO_TILE=$(ZERO_TILE) -l memory_readback.log
+
+wave_readback:
+	$(VERDI) -dbdir simv_memory_readback.daidir \
+		-ssf memory_readback.fsdb -sswr $(WAVE_DIR)/memory_readback.rc &
+
+memory_build: link_src
+	$(VCS) -full64 -sverilog -timescale=1ns/1ps \
+		-debug_access+all -kdb +define+FSDB \
+		-top tb_matrix_mult -f tb_matrix_mult.include \
+		-o simv_memory -l memory_compile.log
+
+memory: memory_build
+	./simv_memory -no_save +DATA_DIR=$(DATA_DIR) +RELU=$(RELU) -l memory.log
+
+external_bist_build: link_src
+	$(VCS) -full64 -sverilog -timescale=1ns/1ps \
+		-debug_access+all -kdb +define+FSDB \
+		-top tb_external_bist -f tb_external_bist.include \
+		-o simv_external_bist -l external_bist_compile.log
+
+external: external_bist_build
+	./simv_external_bist -no_save +MODE=external +RELU=$(RELU) +ZERO_TILE=$(ZERO_TILE) +FSDB=external.fsdb -l external.log
+
+bist: external_bist_build
+	./simv_external_bist -no_save +MODE=bist +RELU=$(RELU) +ZERO_TILE=$(ZERO_TILE) +FSDB=bist.fsdb -l bist.log
+
+wave_external:
+	$(VERDI) -dbdir simv_external_bist.daidir -ssf external.fsdb -sswr $(WAVE_DIR)/external.rc &
+
+wave_bist:
+	$(VERDI) -dbdir simv_external_bist.daidir -ssf bist.fsdb -sswr $(WAVE_DIR)/bist.rc &
+
+wave_memory:
+	$(VERDI) -dbdir simv_memory.daidir -ssf matrix_mult.fsdb -sswr $(WAVE_DIR)/memory.rc &
 
 

@@ -1,5 +1,5 @@
 
-module pseudo_rand_num_gen
+module pseudo_rand_num_gen_3
 #(
    parameter DATA_WIDTH = 64
 )
@@ -38,7 +38,7 @@ module pseudo_rand_num_gen
    //next logic (combo+ff)    //test mode ? 1-internal : 0-external 
    assign lfsr_en    = bypass_i ? valid_i : (r_next_state == RUN);
 
-   lfsr #(
+   lfsr_3 #(
       .NUM_BITS(DATA_WIDTH)
    ) lfsr_0 (
       .clk_i         (clk_i         ),

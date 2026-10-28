@@ -1,4 +1,4 @@
-module pe #(
+module pe_3 #(
     parameter WIDTH = 8,
     parameter ACCUM_WIDTH = 18
 ) (

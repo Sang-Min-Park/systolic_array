@@ -58,7 +58,6 @@ module tb_matrix_mult;
 
    logic                         start_i;
    logic                         done_o;
-   logic                         sample_clk_dut;
 
    // Wrapper control signals
    logic                         en_i;
@@ -66,6 +65,7 @@ module tb_matrix_mult;
    test_config_struct            test_config_i;
    data_config_struct            data_config_i;
    external_inputs_struct        ext_inputs_i;
+   extra_output_bits_struct      extra_output_bits;
 
    // Wrapper monitor signals
    logic [Tn-1:0][WIDTH-1:0]    ext_result_o;
@@ -91,7 +91,7 @@ module tb_matrix_mult;
    end
 
    // -- Memory Instance: Input Buffer Memory -- //
-   mem_emulator #(.WIDTH(Tm*WIDTH), .SIZE(I_SIZE))
+   mem_emulator_3 #(.WIDTH(Tm*WIDTH), .SIZE(I_SIZE))
       ib_mem (
          .clk_i   (clk_i),
          .cenb_i  (ib_mem_cenb_o),
@@ -102,7 +102,7 @@ module tb_matrix_mult;
    );
 
    // -- Memory Instance: Weight Buffer Memory -- //
-   mem_emulator #(.WIDTH(Tn*WIDTH), .SIZE(W_SIZE))
+   mem_emulator_3 #(.WIDTH(Tn*WIDTH), .SIZE(W_SIZE))
       wb_mem (
          .clk_i   (clk_i),
          .cenb_i  (wb_mem_cenb_o),
@@ -113,7 +113,7 @@ module tb_matrix_mult;
    );
 
    // -- Memory Instance: Output Buffer Memory -- //
-   mem2p_emulator #(.WIDTH(Tn*ACCUM_WIDTH), .SIZE(O_SIZE))
+   mem2p_emulator_3 #(.WIDTH(Tn*ACCUM_WIDTH), .SIZE(O_SIZE))
       ob_mem (
          .clk_i    (clk_i),
          .cenb_a_i (ob_mem_cenb_R_o),
@@ -130,7 +130,7 @@ module tb_matrix_mult;
    );
 
    // -- DUT Instance: Matrix Mult -- //
-   matrix_mult #(
+   matrix_mult_3 #(
       .WIDTH       (WIDTH),
       .ACCUM_WIDTH (ACCUM_WIDTH),
       .W_SIZE      (W_SIZE),
@@ -146,7 +146,7 @@ module tb_matrix_mult;
       .ext_inputs_i        (ext_inputs_i),
       .ext_result_o        (ext_result_o),
       .ext_valid_o         (ext_valid_o),
-      .extra_output_bits_o (),
+      .extra_output_bits_o (extra_output_bits),
 
       .ib_mem_cenb_o       (ib_mem_cenb_o),
       .ib_mem_wenb_o       (ib_mem_wenb_o),
@@ -175,6 +175,12 @@ module tb_matrix_mult;
 
    initial begin : TEST_CASE
       string data_dir;
+      integer relu_enable;
+
+      if (!$value$plusargs("RELU=%d", relu_enable))
+         relu_enable = 0;
+      if (relu_enable != 0 && relu_enable != 1)
+         $fatal(1, "RELU must be 0 or 1");
 
       `ifdef FSDB
       $fsdbDumpfile("matrix_mult.fsdb");
@@ -192,6 +198,7 @@ module tb_matrix_mult;
       ext_en_i      = 1'b0;
       ext_inputs_i  = '0;
       data_config_i = '0;
+      data_config_i.extra_config_i[0] = relu_enable[0];
       data_config_i.i_rows = M;
       data_config_i.w_cols = N;
       data_config_i.w_rows = K;
@@ -205,10 +212,10 @@ module tb_matrix_mult;
       $readmemh({data_dir, "/WEIGHT_MEM_2.hex"}, wb_mem.data, 0, 3);
       $readmemh({data_dir, "/OUTPUT_MEM_2.hex"}, expected_result, 0, 3);
 
-      // Apply the final ReLU to the supplied signed INT8 expectations.
+      // Apply ReLU to the supplied expectations only when enabled.
       for (integer row = 0; row < 4; row++)
          for (integer col = 0; col < 4; col++)
-            if ($signed(expected_result[row][col][WIDTH-1:0]) < 0)
+            if (relu_enable && $signed(expected_result[row][col][WIDTH-1:0]) < 0)
                expected_result[row][col] = '0;
 
       //start
@@ -216,6 +223,8 @@ module tb_matrix_mult;
       start_i = 1'b1;
       @(negedge clk_i);
       start_i = 1'b0;
+      if (extra_output_bits.extra_config_o !== {7'b0, relu_enable[0]})
+         $fatal(1, "ReLU scan readback mismatch");
       @(posedge done_o);
       @(negedge clk_i);
 
@@ -228,7 +237,7 @@ module tb_matrix_mult;
                $fatal(1, "Mismatch at C[%0d][%0d]", row, col);
          end
       end
-      $display("PASS: Output memory matches ReLU(OUTPUT_MEM_2.hex)");
+      $display("PASS: Output memory matches expected output (ReLU=%0d)", relu_enable);
       $finish;
    end
 

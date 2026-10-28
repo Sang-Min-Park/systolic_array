@@ -1,0 +1,77 @@
+Magic 271485
+Revision 1.0
+
+; Signal groups for RTL debugging.
+openDirFile -d / "." "bist.fsdb"
+signalSpacing 3
+top 0
+
+addGroup "Control"
+activeDirFile "." "bist.fsdb"
+addSignal -h 15 /tb_external_bist/clk_i
+addSignal -h 15 /tb_external_bist/rstn_async_i
+addSignal -h 15 /tb_external_bist/ext_en_i
+addSignal -h 15 -UNSIGNED /tb_external_bist/tests[31:0]
+addSignal -h 15 -UNSIGNED /tb_external_bist/inputs_seen[31:0]
+addSignal -h 15 -UNSIGNED /tb_external_bist/outputs_seen[31:0]
+
+addGroup "Synchronized_reset"
+activeDirFile "." "bist.fsdb"
+addSignal -h 15 /tb_external_bist/dut/rstn_i
+
+addGroup "ReLU_config"
+activeDirFile "." "bist.fsdb"
+addSignal -h 15 /tb_external_bist/dut/matrix_mult_0/relu_en
+
+addGroup "Weight_load"
+activeDirFile "." "bist.fsdb"
+addSignal -h 15 /tb_external_bist/dut/matrix_mult_0/weight_en[3:0]
+addSignal -h 15 /tb_external_bist/dut/matrix_mult_0/weight_scheduled[0][7:0]
+addSignal -h 15 /tb_external_bist/dut/matrix_mult_0/weight_scheduled[3][7:0]
+addSignal -h 15 /tb_external_bist/dut/matrix_mult_0/gen_row[0]/gen_col[0]/u_pe/weight_reg[7:0]
+addSignal -h 15 /tb_external_bist/dut/matrix_mult_0/gen_row[3]/gen_col[0]/u_pe/weight_reg[7:0]
+
+addGroup "Activation_input"
+activeDirFile "." "bist.fsdb"
+addSignal -h 15 /tb_external_bist/dut/ext_valid_i_w
+addSignal -h 15 /tb_external_bist/dut/ext_input_w[0][7:0]
+addSignal -h 15 /tb_external_bist/dut/ext_input_w[1][7:0]
+addSignal -h 15 /tb_external_bist/dut/ext_input_w[2][7:0]
+addSignal -h 15 /tb_external_bist/dut/ext_input_w[3][7:0]
+
+addGroup "PE00"
+activeDirFile "." "bist.fsdb"
+addSignal -h 15 /tb_external_bist/dut/matrix_mult_0/gen_row[0]/gen_col[0]/u_pe/act_i[7:0]
+addSignal -h 15 /tb_external_bist/dut/matrix_mult_0/gen_row[0]/gen_col[0]/u_pe/weight_en_i
+addSignal -h 15 /tb_external_bist/dut/matrix_mult_0/gen_row[0]/gen_col[0]/u_pe/psum_i[17:0]
+addSignal -h 15 /tb_external_bist/dut/matrix_mult_0/gen_row[0]/gen_col[0]/u_pe/psum_o[17:0]
+
+addGroup "Aligned_results"
+activeDirFile "." "bist.fsdb"
+addSignal -h 15 /tb_external_bist/dut/ext_valid_o_w
+addSignal -h 15 /tb_external_bist/dut/ext_result_w[0][7:0]
+addSignal -h 15 /tb_external_bist/dut/ext_result_w[1][7:0]
+addSignal -h 15 /tb_external_bist/dut/ext_result_w[2][7:0]
+addSignal -h 15 /tb_external_bist/dut/ext_result_w[3][7:0]
+
+addGroup "LFSR_driver"
+activeDirFile "." "bist.fsdb"
+addSignal -h 15 /tb_external_bist/dut/driver_0/valid_i
+addSignal -h 15 /tb_external_bist/dut/driver_0/lfsr_en
+addSignal -h 15 /tb_external_bist/dut/driver_seed_w[63:0]
+addSignal -h 15 /tb_external_bist/dut/driver_data_w[63:0]
+addSignal -h 15 /tb_external_bist/dut/driver_done_w
+
+addGroup "MISR_drain"
+activeDirFile "." "bist.fsdb"
+addSignal -h 15 -UNSIGNED /tb_external_bist/dut/sa_pending_count[3:0]
+addSignal -h 15 /tb_external_bist/dut/sa_dut_valid_w
+addSignal -h 15 /tb_external_bist/dut/sa_dut_data_w[63:0]
+addSignal -h 15 /tb_external_bist/dut/sa_stop_w
+addSignal -h 15 /tb_external_bist/dut/sa_data_w[63:0]
+
+addGroup "Signature_pins"
+activeDirFile "." "bist.fsdb"
+addSignal -h 15 /tb_external_bist/ext_valid
+addSignal -h 15 /tb_external_bist/ext_result[63:0]
+addSignal -h 15 /tb_external_bist/expected_signature[63:0]

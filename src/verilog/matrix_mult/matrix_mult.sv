@@ -1,6 +1,6 @@
 import matrix_mult_pkg::*;
 
-module matrix_mult #(
+module matrix_mult_3 #(
     parameter WIDTH             = 8,
     parameter ACCUM_WIDTH       = 16,
     parameter ARRAY_ACCUM_WIDTH = 18,
@@ -65,6 +65,10 @@ logic [$clog2(M)-1:0] cycle;
 logic output_done;
 logic active;
 logic array_active;
+logic mem_relu_en, relu_en;
+logic zero_tile_en;
+logic wgt_response_valid, wgt_rows_zero, zero_tile_skip;
+logic [1:0] wgt_response_row;
 logic act_feed_en, act_feed_done;
 logic [$clog2(M+1)-1:0]    act_m_size;
 logic [$clog2((K >> 2)+1)-1:0]  act_k_tile_idx;
@@ -86,6 +90,30 @@ assign wgt_last_k_tile = (wgt_k_tile_idx == (wgt_k_size >> 2) - 1);
 assign last_wgt_tile   = wgt_last_k_tile && (wgt_n_tile_idx == (wgt_n_size >> 2) - 1);
 
 assign act_feed_en     = active && !act_feed_done;
+
+// Inspect four synchronous weight responses while activation requests continue.
+// Keep the first five zero-product rows; skip only the remaining middle-K rows.
+always_ff @(posedge clk_i) begin
+    if (!rstn_i || !active) begin
+        wgt_response_valid <= 1'b0;
+        wgt_response_row <= '0;
+        wgt_rows_zero <= 1'b1;
+    end else begin
+        wgt_response_valid <= !wb_mem_cenb_o;
+        wgt_response_row <= cycle[1:0];
+        if (wgt_response_valid) begin
+            if (wgt_response_row == 0)
+                wgt_rows_zero <= (wb_mem_data_i == '0);
+            else
+                wgt_rows_zero <= wgt_rows_zero && (wb_mem_data_i == '0);
+        end
+    end
+end
+
+assign zero_tile_skip = zero_tile_en && act_feed_en && (act_m_size > 5)
+                     && (wgt_k_tile_idx != 0) && !wgt_last_k_tile
+                     && wgt_response_valid && (wgt_response_row == 3)
+                     && wgt_rows_zero && (wb_mem_data_i == '0);
 
 // Start edge detector by delaying
 always_ff @(posedge clk_i) begin
@@ -128,6 +156,8 @@ always_ff @(posedge clk_i) begin
         cycle          <= '0;
         act_feed_done  <= 1'b0;
         done_o         <= 1'b0;
+        mem_relu_en    <= 1'b0;
+        zero_tile_en   <= 1'b0;
         act_m_size     <= '0;
         wgt_n_size     <= '0;
         wgt_k_size     <= '0;
@@ -140,6 +170,7 @@ always_ff @(posedge clk_i) begin
         case (current_state)
             IDLE: begin
                 if (start_i && !start_d && !ext_en_i) begin
+                    done_o <= 1'b0;
                     cycle <= '0;
                     act_feed_done <= 1'b0;
                     act_m_size     <= data_config_i.i_rows;
@@ -148,13 +179,15 @@ always_ff @(posedge clk_i) begin
                     act_mem_offset <= data_config_i.i_offset;
                     wgt_mem_offset <= data_config_i.w_offset;
                     rst_mem_offset <= data_config_i.psum_offset;
+                    mem_relu_en    <= data_config_i.extra_config_i[0];
+                    zero_tile_en   <= data_config_i.extra_config_i[1];
                     wgt_k_tile_idx <= '0;
                     wgt_n_tile_idx <= '0;
                 end
             end
             COMPUTE: begin
                 if (act_feed_en) begin
-                    if (cycle == act_m_size - 1) begin
+                    if (cycle == act_m_size - 1 || zero_tile_skip) begin
                         cycle <= '0;
                         if (last_wgt_tile)
                             act_feed_done <= 1'b1;
@@ -170,7 +203,6 @@ always_ff @(posedge clk_i) begin
                     done_o <= 1'b1;
             end
             DONE: begin
-                done_o <= 1'b0;
             end
         endcase
     end
@@ -178,7 +210,9 @@ end
 
 //don't care
 assign ob_mem_data_R_o     =   '0;
-assign extra_output_bits_o =   '0;
+// Extra scan bit 0 selects ReLU; output bit 0 reports the applied setting.
+assign extra_output_bits_o.extra_config_o = {{(EXTRA_OUTPUT_SCAN_BITS-1){1'b0}}, relu_en};
+assign relu_en = ext_en_i ? data_config_i.extra_config_i[0] : mem_relu_en;
 
 //active
 assign active       = (current_state == COMPUTE) && !ext_en_i;
@@ -220,7 +254,7 @@ end
 // 4x4 PE array
 for (genvar r = 0; r < 4; r++) begin : gen_row
     for (genvar c = 0; c < 4; c++) begin : gen_col
-        pe #(
+        pe_3 #(
             .WIDTH              (WIDTH),
             .ACCUM_WIDTH        (ARRAY_ACCUM_WIDTH)
         ) u_pe (
@@ -240,7 +274,7 @@ for (genvar r = 0; r < 4; r++) begin : gen_row
     end
 end
 
-weight_scheduler #(
+weight_scheduler_3 #(
     .WIDTH              (WIDTH),
     .W_SIZE             (W_SIZE),
     .M                  (M)
@@ -262,7 +296,7 @@ weight_scheduler #(
     .weight_o           (weight_scheduled)
 );
 
-input_scheduler #(
+input_scheduler_3 #(
     .WIDTH              (WIDTH),
     .I_SIZE             (I_SIZE),
     .M                  (M)
@@ -284,7 +318,7 @@ input_scheduler #(
     .act_o              (act_scheduled)
 );
 
-output_scheduler #(
+output_scheduler_3 #(
     .WIDTH             (WIDTH),
     .ARRAY_ACCUM_WIDTH (ARRAY_ACCUM_WIDTH),
     .ACCUM_WIDTH       (ACCUM_WIDTH),
@@ -297,10 +331,12 @@ output_scheduler #(
     .rstn_i            (rstn_i),
     .active_i          (active),
     .ext_en_i          (ext_en_i),
+    .relu_en_i         (relu_en),
     .ext_act_valid_i   (ext_inputs_i.ext_valid),
     .ext_result_o      (ext_result_o),
     .ext_valid_o       (ext_valid_o),
     .act_request_i     (!ib_mem_cenb_o),
+    .zero_tile_skip_i   (zero_tile_skip),
     .rst_m_size_i      (act_m_size),
     .rst_n_size_i      (wgt_n_size),
     .wgt_k_size_i      (wgt_k_size),
