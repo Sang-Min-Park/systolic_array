@@ -82,25 +82,24 @@ export VCS_HOME VERDI_HOME
 
 DATA_DIR ?= ../../src/verilog/tests/example
 RELU ?= 0
-MEMORY_OBSERVE ?= 0
 ZERO_TILE ?= 0
 WAVE_DIR = $(SRC_VERILOG)/waves
 
 .PHONY: memory_build memory external_bist_build external bist wave_memory wave_external wave_bist
-.PHONY: readback_build readback wave_readback
+.PHONY: memory_tiled_build memory_tiled wave_memory_tiled
 
-readback_build: link_src
+memory_tiled_build: link_src
 	$(VCS) -full64 -sverilog -timescale=1ns/1ps \
 		-debug_access+all -kdb +define+FSDB \
-		-top tb_memory_readback -f tb_memory_readback.include \
-		-o simv_memory_readback -l memory_readback_compile.log
+		-top tb_memory_tiled -f tb_memory_tiled.include \
+		-o simv_memory_tiled -l memory_tiled_compile.log
 
-readback: readback_build
-	./simv_memory_readback -no_save +RELU=$(RELU) +MEMORY_OBSERVE=$(MEMORY_OBSERVE) +ZERO_TILE=$(ZERO_TILE) -l memory_readback.log
+memory_tiled: memory_tiled_build
+	./simv_memory_tiled -no_save +RELU=$(RELU) +ZERO_TILE=$(ZERO_TILE) -l memory_tiled.log
 
-wave_readback:
-	$(VERDI) -dbdir simv_memory_readback.daidir \
-		-ssf memory_readback.fsdb -sswr $(WAVE_DIR)/memory_readback.rc &
+wave_memory_tiled:
+	$(VERDI) -dbdir simv_memory_tiled.daidir \
+		-ssf memory_tiled.fsdb -sswr $(WAVE_DIR)/memory_tiled.rc &
 
 memory_build: link_src
 	$(VCS) -full64 -sverilog -timescale=1ns/1ps \

@@ -1,0 +1,60 @@
+Magic 271485
+Revision 1.0
+
+; Memory-mode tiling, SRAM results, and zero-tile skipping.
+openDirFile -d / "." "memory_tiled.fsdb"
+signalSpacing 3
+top 0
+
+addGroup "Control"
+activeDirFile "." "memory_tiled.fsdb"
+addSignal -h 15 /tb_memory_tiled/clk_i
+addSignal -h 15 /tb_memory_tiled/rstn_async_i
+addSignal -h 15 /tb_memory_tiled/en_i
+addSignal -h 15 /tb_memory_tiled/start_i
+addSignal -h 15 /tb_memory_tiled/ext_en_i
+addSignal -h 15 /tb_memory_tiled/done
+addSignal -h 15 /tb_memory_tiled/data_config[54:0]
+
+addGroup "Activation_weight_reads"
+activeDirFile "." "memory_tiled.fsdb"
+addSignal -h 15 /tb_memory_tiled/ib_cenb
+addSignal -h 15 /tb_memory_tiled/ib_wenb
+addSignal -h 15 -UNSIGNED /tb_memory_tiled/ib_addr[9:0]
+addSignal -h 15 /tb_memory_tiled/ib_data[31:0]
+addSignal -h 15 /tb_memory_tiled/wb_cenb
+addSignal -h 15 /tb_memory_tiled/wb_wenb
+addSignal -h 15 -UNSIGNED /tb_memory_tiled/wb_addr[9:0]
+addSignal -h 15 /tb_memory_tiled/wb_data[31:0]
+
+addGroup "SRAM_read"
+activeDirFile "." "memory_tiled.fsdb"
+addSignal -h 15 /tb_memory_tiled/ob_read_cenb
+addSignal -h 15 /tb_memory_tiled/ob_read_wenb
+addSignal -h 15 -UNSIGNED /tb_memory_tiled/ob_read_addr[9:0]
+addSignal -h 15 /tb_memory_tiled/ob_read_data[63:0]
+
+addGroup "SRAM_write"
+activeDirFile "." "memory_tiled.fsdb"
+addSignal -h 15 /tb_memory_tiled/ob_write_cenb
+addSignal -h 15 /tb_memory_tiled/ob_write_wenb
+addSignal -h 15 -UNSIGNED /tb_memory_tiled/ob_write_addr[9:0]
+addSignal -h 15 /tb_memory_tiled/ob_write_data[63:0]
+
+addGroup "Zero_tile_skipping"
+activeDirFile "." "memory_tiled.fsdb"
+addSignal -h 15 /tb_memory_tiled/dut/matrix_mult_0/zero_tile_en
+addSignal -h 15 /tb_memory_tiled/dut/matrix_mult_0/wgt_response_valid
+addSignal -h 15 /tb_memory_tiled/dut/matrix_mult_0/wgt_response_row[1:0]
+addSignal -h 15 /tb_memory_tiled/dut/matrix_mult_0/wgt_rows_zero
+addSignal -h 15 /tb_memory_tiled/dut/matrix_mult_0/zero_tile_skip
+addSignal -h 15 -UNSIGNED /tb_memory_tiled/dut/matrix_mult_0/cycle[5:0]
+addSignal -h 15 -UNSIGNED /tb_memory_tiled/dut/matrix_mult_0/wgt_k_tile_idx[4:0]
+addSignal -h 15 /tb_memory_tiled/dut/matrix_mult_0/u_output_scheduler/zero_tile_skip_pipe[6:0]
+addSignal -h 15 -UNSIGNED /tb_memory_tiled/dut/matrix_mult_0/u_output_scheduler/rst_read_row_idx[6:0]
+addSignal -h 15 -UNSIGNED /tb_memory_tiled/dut/matrix_mult_0/u_output_scheduler/rst_k_iteration_idx[4:0]
+
+addGroup "External_output_unused"
+activeDirFile "." "memory_tiled.fsdb"
+addSignal -h 15 /tb_memory_tiled/ext_result[63:0]
+addSignal -h 15 /tb_memory_tiled/ext_valid

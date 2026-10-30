@@ -5,7 +5,6 @@ module misr_3
 (
    input  logic                  clk_i,
    input  logic                  rstn_i,
-   input  logic                  clear_i,
    input  logic                  bypass_i,
    input  logic                  done_i,
    input  logic [NUM_BITS-1:0]   seed_i,
@@ -22,10 +21,6 @@ module misr_3
       if(~rstn_i) begin 
          r_misr_data    <= seed_i;
          misr_valid_o   <= '0;
-      end
-      else if (clear_i) begin
-         r_misr_data  <= seed_i;
-         misr_valid_o <= '0;
       end
       else begin
          misr_valid_o <= bypass_i ? valid_i : done_i;
