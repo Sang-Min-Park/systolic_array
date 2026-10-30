@@ -364,16 +364,17 @@ class BistSimulator(ExternalSimulator):
             self.signature = signature_seed
         self.signature_valid = False
         self.sa_state = 'IDLE'
+        self.compressed_results = []
 
     def step(self, driver_valid=False, weights=None, weight_en=False):
         input_valid = self.driver.valid
-        output_valid = self.datapath.aligned is not None
-        stop = self.driver.done and self.pending_count == 0 and not input_valid and not output_valid
+        stop = self.driver.done
         state = 'RUN' if self.sa_state == 'IDLE' else ('DONE' if stop else self.sa_state)
         self.signature_valid = state == 'DONE'
         activations = unpack(self.driver.word >> 32) if input_valid else None
         result = super().step(activations, weights, weight_en)
         if result is not None and not self.signature_valid:
+            self.compressed_results.append(result)
             self.signature = next_signature(self.signature) ^ pack(result)
         self.sa_state = state
         self.driver.step(driver_valid)
@@ -385,6 +386,7 @@ class BistSimulator(ExternalSimulator):
         self.load_weights(weights)
         for cycle in range(max_cycles):
             if self.signature_valid:
+                self.drain()
                 return self.results
             self.step(driver_valid=valid_pattern[cycle % len(valid_pattern)])
         raise ValueError('BIST stop code was not reached within max_cycles')

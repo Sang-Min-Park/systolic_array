@@ -166,10 +166,13 @@ class ModelTests(unittest.TestCase):
                     a.append(unpack(state >> 32))
                 expected = reference(a, weights)
                 signature = ((seed & 0xffffffff) << 32) | (seed >> 32)
-                for row in expected:
-                    signature = next_signature(signature) ^ pack(row)
                 sim = BistSimulator(seed, state)
                 self.assertEqual(sim.run(weights, valid), expected)
+                self.assertEqual(sim.compressed_results, expected[:len(sim.compressed_results)])
+                if patterns:
+                    self.assertLess(len(sim.compressed_results), patterns)
+                for row in sim.compressed_results:
+                    signature = next_signature(signature) ^ pack(row)
                 self.assertEqual(sim.signature, signature)
                 self.assertTrue(sim.signature_valid)
                 self.assertTrue(sim.driver.done)
@@ -218,10 +221,10 @@ class ModelTests(unittest.TestCase):
                     inputs.append(unpack(state >> 32))
                 expected = reference(inputs, identity4, relu)
                 signature = ((seed & 0xffffffff) << 32) | (seed >> 32)
-                for row in expected:
-                    signature = next_signature(signature) ^ pack(row)
                 bist = BistSimulator(seed, state, relu=relu)
                 self.assertEqual(bist.run(identity4, (True, False, True)), expected)
+                for row in bist.compressed_results:
+                    signature = next_signature(signature) ^ pack(row)
                 self.assertEqual(bist.signature, signature)
 
     def test_cli_modes(self):

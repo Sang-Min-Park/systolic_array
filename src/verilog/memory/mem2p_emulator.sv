@@ -23,17 +23,17 @@ module mem2p_emulator_3 #(parameter WIDTH=32, SIZE=256) (
 	always @(posedge clk_i) begin
 		if (cenb_a_i == 1'b0) begin
 			if (wenb_a_i == 1'b0) begin
-				data[addr_a_i] <= d_a_i;
+				data[addr_a_i] <= #1 d_a_i;
 			end else begin
-				q_a_o <= data[addr_a_i];
+				q_a_o <= #1 data[addr_a_i];
 			end
 		end
 
 		if (cenb_b_i == 1'b0) begin
 			if (wenb_b_i == 1'b0) begin
-				data[addr_b_i] <= d_b_i;
+				data[addr_b_i] <= #1 d_b_i;
 			end else begin
-				q_b_o <= data[addr_b_i];
+				q_b_o <= #1 data[addr_b_i];
 			end
 		end
 	end

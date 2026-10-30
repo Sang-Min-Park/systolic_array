@@ -1,3 +1,4 @@
+`timescale 1ns/1ps
 module mem_emulator_3 #(parameter WIDTH=32, SIZE=256) (
 	input  logic                    clk_i,
 	input  logic                    cenb_i,	// memory enable, active low
@@ -13,9 +14,10 @@ module mem_emulator_3 #(parameter WIDTH=32, SIZE=256) (
 	always @(posedge clk_i) begin
 		if (~cenb_i) begin
 			if (wenb_i) begin // read
-				q_o <= data[addr_i];			
+				// q_o <= data[addr_i];			
+				q_o <= #1 data[addr_i];			
 			end else begin	// write
-				data[addr_i] <= d_i;			
+				data[addr_i] <= #1 d_i;			
 			end
 		end
 	end

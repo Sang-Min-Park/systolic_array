@@ -1,4 +1,4 @@
-module lfsr_3
+module lfsr_3 
 #(
    parameter NUM_BITS = 64
 )
@@ -37,7 +37,8 @@ module lfsr_3
    end
    
    // https://docs.xilinx.com/v/u/en-US/xapp052
-   // Taps for Maximum-Length LFSR Counters XNOR form 
+   // Taps for Maximum-Length LFSR Counters XNOR form
+   // below is an alternative approach
    always_comb begin
       r_xnor = r_lfsr_data_r[63] ^ r_lfsr_data_r[62] ^ r_lfsr_data_r[61] ^ r_lfsr_data_r[52];
    end
